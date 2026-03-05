@@ -1,0 +1,459 @@
+import { useState, useMemo, useRef, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { doc, updateDoc } from "firebase/firestore";
+import { db } from "../config/firebase";
+import { useRoom } from "../hooks/useRoom";
+import { useVote } from "../hooks/useVote";
+import { useUserStore } from "../store/userStore";
+import { getLocalDeviceId } from "../utils/helpers";
+import gsap from "gsap";
+import { useGSAP } from "@gsap/react";
+
+gsap.registerPlugin(useGSAP);
+
+export default function Room() {
+  const { roomId } = useParams<{ roomId: string }>();
+  const navigate = useNavigate();
+  const { room, loading: roomLoading, error } = useRoom(roomId);
+  const { votes, loading: votesLoading, castVote } = useVote(roomId!);
+
+  const { nickname, setNickname } = useUserStore();
+  const [tempNickname, setTempNickname] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const menuListRef = useRef<HTMLDivElement>(null);
+  const nicknameModalRef = useRef<HTMLDivElement>(null);
+  const prevVotesRef = useRef<typeof votes>([]);
+
+  const deviceId = getLocalDeviceId();
+
+  const menuVotesMap = useMemo(() => {
+    const map: Record<string, { count: number; voters: string[] }> = {};
+    if (room?.menus) {
+      room.menus.forEach((m) => {
+        map[m.id] = { count: 0, voters: [] };
+      });
+    }
+    votes.forEach((vote) => {
+      if (map[vote.menuId]) {
+        map[vote.menuId].count += 1;
+        map[vote.menuId].voters.push(vote.nickname);
+      }
+    });
+    return map;
+  }, [room, votes]);
+
+  const participantCount = useMemo(
+    () => new Set(votes.map((v) => v.userId)).size,
+    [votes],
+  );
+
+  const totalVotes = votes.length;
+
+  const maxVoteCount = useMemo(
+    () => Math.max(...Object.values(menuVotesMap).map((v) => v.count), 0),
+    [menuVotesMap],
+  );
+
+  // 메뉴 목록 진입 애니메이션
+  useGSAP(
+    () => {
+      if (!roomLoading && !votesLoading && room && nickname) {
+        gsap.fromTo(
+          "header",
+          { opacity: 0, y: -12 },
+          { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" },
+        );
+        if (menuListRef.current) {
+          gsap.fromTo(
+            menuListRef.current.querySelectorAll(".menu-vote-item"),
+            { opacity: 0, y: 18 },
+            {
+              opacity: 1,
+              y: 0,
+              duration: 0.45,
+              stagger: 0.07,
+              ease: "power2.out",
+              delay: 0.15,
+            },
+          );
+        }
+      }
+    },
+    {
+      scope: containerRef,
+      dependencies: [roomLoading, votesLoading, !!room, !!nickname],
+    },
+  );
+
+  // 투표 변경 시 해당 카드 pulse
+  useEffect(() => {
+    if (votes.length !== prevVotesRef.current.length && menuListRef.current) {
+      const changed = votes.find(
+        (v) =>
+          !prevVotesRef.current.find(
+            (pv) => pv.userId === v.userId && pv.menuId === v.menuId,
+          ),
+      );
+      if (changed) {
+        const el = menuListRef.current.querySelector(
+          `[data-menu-id="${changed.menuId}"]`,
+        );
+        if (el) {
+          gsap.fromTo(
+            el,
+            { scale: 1 },
+            {
+              scale: 1.025,
+              duration: 0.15,
+              yoyo: true,
+              repeat: 1,
+              ease: "power2.out",
+            },
+          );
+        }
+      }
+    }
+    prevVotesRef.current = votes;
+  }, [votes]);
+
+  // 닉네임 모달 진입 애니메이션
+  useGSAP(
+    () => {
+      if (
+        !nickname &&
+        !roomLoading &&
+        !votesLoading &&
+        nicknameModalRef.current
+      ) {
+        gsap.fromTo(
+          nicknameModalRef.current,
+          { opacity: 0, scale: 0.94, y: 16 },
+          { opacity: 1, scale: 1, y: 0, duration: 0.45, ease: "back.out(1.6)" },
+        );
+      }
+    },
+    { dependencies: [!nickname, roomLoading, votesLoading] },
+  );
+
+  if (roomLoading || votesLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#faf9f5]">
+        <div className="text-center">
+          <div className="w-7 h-7 border-2 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+          <p className="text-[9px] font-black text-gray-400 uppercase tracking-[0.3em]">
+            입장 중
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !room) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#faf9f5] p-6">
+        <div className="text-center">
+          <p className="hd text-3xl text-gray-300 mb-2">
+            방을 찾을 수 없습니다
+          </p>
+          <span className="text-[9px] font-black text-gray-300 uppercase tracking-[0.3em]">
+            링크를 다시 확인해주세요
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // 닉네임 입력 모달
+  if (!nickname) {
+    return (
+      <div className="min-h-screen bg-[#faf9f5] flex items-center justify-center p-6">
+        <div
+          ref={nicknameModalRef}
+          className="bg-white p-8 rounded-3xl border border-[#e5e1d8] w-full max-w-sm opacity-0"
+          style={{ boxShadow: "0 8px 40px rgba(0,0,0,0.06)" }}
+        >
+          <div className="text-center mb-8">
+            <p className="text-[9px] font-black text-orange-500 uppercase tracking-[0.35em] mb-3">
+              투표 참여
+            </p>
+            <h2 className="hd text-3xl text-black mb-2 leading-tight">
+              {room.title}
+            </h2>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.25em]">
+              닉네임을 설정해주세요
+            </p>
+          </div>
+          <input
+            type="text"
+            placeholder="사용할 닉네임"
+            value={tempNickname}
+            onChange={(e) => setTempNickname(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && tempNickname.trim()) {
+                setNickname(tempNickname.trim());
+              }
+            }}
+            maxLength={10}
+            autoFocus
+            className="w-full bg-[#faf9f5] border border-[#e5e1d8] rounded-xl px-4 py-3.5 mb-3 focus-brand placeholder:text-gray-300 placeholder:font-normal font-medium text-black outline-none transition-all text-sm"
+          />
+          <button
+            onClick={() =>
+              tempNickname.trim() && setNickname(tempNickname.trim())
+            }
+            disabled={!tempNickname.trim()}
+            className="w-full bg-orange-600 disabled:bg-gray-100 disabled:text-gray-400 text-white font-black py-[15px] rounded-xl shadow-[0_4px_20px_rgba(234,88,12,0.2)] transition-all active:scale-[0.98] uppercase text-xs tracking-widest"
+          >
+            입장하기
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const isHost = room.hostId === deviceId;
+  const isClosed = room.isClosed;
+
+  const winnerMenuId = isClosed
+    ? Object.entries(menuVotesMap)
+        .filter(([, v]) => v.count > 0)
+        .sort((a, b) => b[1].count - a[1].count)[0]?.[0]
+    : null;
+
+  const handleVote = async (menuId: string) => {
+    if (isClosed) return;
+    await castVote(deviceId, nickname, menuId);
+  };
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(window.location.href);
+    alert("링크가 복사되었습니다!");
+  };
+
+  const handleCloseVote = async () => {
+    if (!roomId) return;
+    if (window.confirm("투표를 종료하시겠습니까?")) {
+      try {
+        await updateDoc(doc(db, "rooms", roomId), { isClosed: true });
+      } catch (err) {
+        console.error(err);
+        alert("투표 종료에 실패했습니다.");
+      }
+    }
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      className="min-h-screen bg-[#faf9f5] flex flex-col font-sans"
+    >
+      {/* 헤더 */}
+      <header className="bg-white/80 backdrop-blur-md border-b border-[#e5e1d8] p-6 sticky top-0 z-10 shadow-sm">
+        <div className="max-w-md mx-auto flex items-center justify-between">
+          <button
+            onClick={() => navigate("/")}
+            className="text-gray-500 hover:text-black transition flex items-center gap-1 text-xs font-black uppercase tracking-widest"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2.5"
+                d="M15 19l-7-7 7-7"
+              />
+            </svg>
+            홈으로
+          </button>
+          <div className="text-center">
+            <h1 className="hd text-2xl text-black leading-tight">
+              {room.title}
+            </h1>
+            <div className="flex items-center justify-center gap-2 mt-0.5">
+              <span
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${isClosed ? "bg-gray-300" : "bg-orange-500 animate-pulse"}`}
+              />
+              <span className="text-[9px] font-black text-gray-400 uppercase tracking-[0.3em]">
+                {isClosed
+                  ? "투표 종료"
+                  : `참여자 ${participantCount}명 · 투표 진행중`}
+              </span>
+            </div>
+          </div>
+          <div className="w-12"></div>
+        </div>
+      </header>
+
+      {/* 메뉴 목록 */}
+      <main className="flex-1 px-5 pt-6 pb-28 w-full max-w-md mx-auto">
+        {/* 안내 배너 */}
+        {!isClosed && (
+          <div className="flex items-center gap-3 mb-6">
+            <div className="h-px flex-1 bg-[#e5e1d8]"></div>
+            <span className="text-[9px] font-black text-gray-400 uppercase tracking-[0.3em]">
+              원하는 메뉴를 선택하세요
+            </span>
+            <div className="h-px flex-1 bg-[#e5e1d8]"></div>
+          </div>
+        )}
+
+        {isClosed && (
+          <div className="flex items-center gap-3 mb-6">
+            <div className="h-px flex-1 bg-[#e5e1d8]"></div>
+            <span className="text-[9px] font-black text-orange-500 uppercase tracking-[0.3em]">
+              최종 결과
+            </span>
+            <div className="h-px flex-1 bg-[#e5e1d8]"></div>
+          </div>
+        )}
+
+        <div ref={menuListRef} className="space-y-3">
+          {room.menus?.map((menu) => {
+            const voteData = menuVotesMap[menu.id] || {
+              count: 0,
+              voters: [],
+            };
+            const isMyVote =
+              votes.find((v) => v.userId === deviceId)?.menuId === menu.id;
+            const isLeading =
+              voteData.count > 0 && voteData.count === maxVoteCount;
+            const isWinner = winnerMenuId === menu.id;
+            const percentage =
+              totalVotes > 0
+                ? Math.round((voteData.count / totalVotes) * 100)
+                : 0;
+
+            return (
+              <button
+                key={menu.id}
+                data-menu-id={menu.id}
+                onClick={() => handleVote(menu.id)}
+                disabled={isClosed}
+                className={[
+                  "menu-vote-item group relative w-full text-left p-5 rounded-2xl border-2 transition-all duration-200",
+                  isWinner
+                    ? "border-orange-400 bg-linear-to-br from-orange-50 to-amber-50/40"
+                    : isMyVote
+                      ? "border-orange-200 bg-orange-50/30"
+                      : "border-[#e9e5dd] bg-white hover:border-orange-200 hover:shadow-sm",
+                  isClosed && !isWinner ? "opacity-45" : "",
+                  isClosed ? "cursor-default" : "active:scale-[0.99]",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              >
+                {/* 1위 배지 */}
+                {isWinner && (
+                  <div className="absolute -top-2.5 left-5">
+                    <span className="bg-orange-600 text-white text-[9px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-widest shadow-sm">
+                      1위
+                    </span>
+                  </div>
+                )}
+
+                {/* 메뉴명 + 투표수 */}
+                <div className="flex justify-between items-start mb-3">
+                  <h3
+                    className={`hd text-[26px] leading-tight transition-colors flex-1 ${isWinner ? "text-orange-950" : "text-black"} ${!isClosed ? "group-hover:text-orange-900" : ""}`}
+                  >
+                    {menu.name}
+                  </h3>
+                  <div className="text-right shrink-0 ml-3">
+                    {isMyVote && !isWinner && (
+                      <span className="bg-orange-100 text-orange-700 text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wide inline-block mb-1">
+                        내 선택
+                      </span>
+                    )}
+                    <span
+                      className={`text-3xl font-bold leading-none block ${voteData.count > 0 ? (isWinner ? "text-orange-600" : "text-orange-500") : "text-gray-200"}`}
+                    >
+                      {voteData.count}
+                    </span>
+                    {totalVotes > 0 && voteData.count > 0 && (
+                      <span className="text-[9px] font-black text-gray-400 tracking-wide block">
+                        {percentage}%
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 진행 바 */}
+                {totalVotes > 0 && (
+                  <div className="mb-3 h-1 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full vote-bar ${isLeading ? "bg-orange-500" : "bg-gray-300"}`}
+                      style={{ width: `${percentage}%` }}
+                    />
+                  </div>
+                )}
+
+                {/* 투표자 목록 */}
+                <div className="flex flex-wrap gap-1.5 min-h-[20px]">
+                  {voteData.voters.map((voterName, idx) => (
+                    <span
+                      key={idx}
+                      className={`text-[10px] font-bold tracking-tight px-2 py-0.5 rounded border ${
+                        voterName === nickname
+                          ? "bg-orange-600 border-orange-600 text-white"
+                          : "bg-white border-[#e5e1d8] text-gray-500"
+                      }`}
+                    >
+                      {voterName}
+                    </span>
+                  ))}
+                  {voteData.count === 0 && !isClosed && (
+                    <span className="hd text-sm text-gray-300">
+                      첫 번째로 선택해보세요
+                    </span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-12 text-center">
+          <span className="hd text-lg text-gray-300">Menu Sync</span>
+        </div>
+      </main>
+
+      {/* 하단 컨트롤 바 */}
+      <div className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-[#e5e1d8] p-4">
+        <div className="max-w-md mx-auto flex gap-2.5">
+          <button
+            onClick={handleCopyLink}
+            className="flex-1 flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-black py-3 px-4 rounded-xl transition-all text-[10px] uppercase tracking-widest active:scale-[0.98]"
+          >
+            <svg
+              className="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2.5"
+                d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
+              />
+            </svg>
+            링크 복사
+          </button>
+
+          {isHost && !isClosed && (
+            <button
+              onClick={handleCloseVote}
+              className="flex-1 bg-[#111] hover:bg-zinc-800 text-white font-black py-3 px-4 rounded-xl transition-all text-[10px] uppercase tracking-widest active:scale-[0.98]"
+            >
+              투표 종료
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

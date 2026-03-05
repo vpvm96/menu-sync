@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap");
+
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+
+  --color-brand-primary: #111111;
+  --color-brand-accent: #ea580c;
+}
+
+@layer base {
+  body {
+    background-color: #faf9f5;
+    color: #1a1a1a;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-image: radial-gradient(
+      ellipse 100% 60% at 50% 0%,
+      rgba(234, 88, 12, 0.035) 0%,
+      transparent 70%
+    );
+  }
+}
+
+.hd {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.focus-brand {
+  @apply focus:outline-none focus:ring-2 focus:ring-brand-accent/20 focus:border-brand-accent;
+}
+
+/* 투표 progress bar 애니메이션 */
+@keyframes growWidth {
+  from {
+    width: 0%;
+  }
+}
+
+.vote-bar {
+  animation: growWidth 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
