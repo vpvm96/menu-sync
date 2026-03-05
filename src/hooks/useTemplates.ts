@@ -4,6 +4,7 @@ import {
   onSnapshot,
   doc,
   setDoc,
+  updateDoc,
   deleteDoc,
   query,
   orderBy,
@@ -54,13 +55,20 @@ export const useTemplates = () => {
     name: string,
     menus: Menu[],
   ) => {
-    const tplId = id || `tpl-${generateRoomId()}`;
-    const tplRef = doc(db, "templates", tplId);
-    await setDoc(tplRef, {
-      name,
-      menus,
-      createdAt: new Date().getTime(),
-    });
+    if (id) {
+      // 수정: name과 menus만 업데이트 (createdAt 유지)
+      const tplRef = doc(db, "templates", id);
+      await updateDoc(tplRef, { name, menus });
+    } else {
+      // 새로 생성
+      const tplId = `tpl-${generateRoomId()}`;
+      const tplRef = doc(db, "templates", tplId);
+      await setDoc(tplRef, {
+        name,
+        menus,
+        createdAt: new Date().getTime(),
+      });
+    }
   };
 
   const removeTemplate = async (id: string) => {

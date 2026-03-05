@@ -90,7 +90,7 @@ export default function CreateRoom() {
     try {
       setIsCreating(true);
       const hostId = getLocalDeviceId();
-      const roomId = await createRoom(title, selectedTemplate.menus, hostId);
+      const roomId = await createRoom(title, selectedTemplate.menus, hostId, selectedTemplate.id);
       navigate(`/room/${roomId}`);
     } catch (error) {
       console.error(error);

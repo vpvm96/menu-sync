@@ -3,6 +3,7 @@ import {
   collection,
   doc,
   setDoc,
+  updateDoc,
   onSnapshot,
   Timestamp,
 } from "firebase/firestore";
@@ -39,7 +40,7 @@ export const useVote = (roomId: string) => {
   }, [roomId]);
 
   // 투표하기 (또는 투표 메뉴 변경하기)
-  const castVote = async (userId: string, nickname: string, menuId: string) => {
+  const castVote = async (userId: string, nickname: string, avatar: string | null, menuId: string) => {
     if (!roomId) return;
 
     try {
@@ -47,6 +48,7 @@ export const useVote = (roomId: string) => {
       const voteData: Vote = {
         userId,
         nickname,
+        ...(avatar ? { avatar } : {}),
         menuId,
         updatedAt: Timestamp.now(),
       };
@@ -59,5 +61,17 @@ export const useVote = (roomId: string) => {
     }
   };
 
-  return { votes, loading, castVote };
+  // 닉네임/아바타 변경 (기존 투표에도 반영)
+  const updateNickname = async (userId: string, newNickname: string, newAvatar?: string | null) => {
+    if (!roomId) return;
+    const voteRef = doc(db, "rooms", roomId, "votes", userId);
+    const existing = votes.find((v) => v.userId === userId);
+    if (existing) {
+      const updates: Record<string, string> = { nickname: newNickname };
+      if (newAvatar) updates.avatar = newAvatar;
+      await updateDoc(voteRef, updates);
+    }
+  };
+
+  return { votes, loading, castVote, updateNickname };
 };

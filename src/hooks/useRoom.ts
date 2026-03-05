@@ -14,6 +14,7 @@ export const useRoom = (roomId?: string) => {
     title: string,
     menus: Menu[],
     hostId: string,
+    templateId?: string,
   ): Promise<string> => {
     try {
       const newRoomId = generateRoomId();
@@ -22,6 +23,7 @@ export const useRoom = (roomId?: string) => {
         title,
         hostId,
         menus,
+        ...(templateId ? { templateId } : {}),
         createdAt: Timestamp.now(),
       };
 

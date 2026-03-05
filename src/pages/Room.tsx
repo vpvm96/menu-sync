@@ -4,8 +4,10 @@ import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { useRoom } from "../hooks/useRoom";
 import { useVote } from "../hooks/useVote";
+import { useTemplate } from "../hooks/useTemplate";
 import { useUserStore } from "../store/userStore";
 import { getLocalDeviceId } from "../utils/helpers";
+import { ANIMALS, ANIMAL_URL_MAP } from "../constants/animals";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 
@@ -15,10 +17,23 @@ export default function Room() {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
   const { room, loading: roomLoading, error } = useRoom(roomId);
-  const { votes, loading: votesLoading, castVote } = useVote(roomId!);
+  const { votes, loading: votesLoading, castVote, updateNickname } = useVote(roomId!);
+  const templateMenus = useTemplate(room?.templateId);
+  // templateId가 있으면 최신 템플릿 메뉴를 사용, 없으면 room에 저장된 메뉴 사용
+  const menus = useMemo(
+    () => templateMenus ?? room?.menus ?? [],
+    [templateMenus, room?.menus],
+  );
 
-  const { nickname, setNickname } = useUserStore();
+  const { nickname, setNickname, avatar, setAvatar } = useUserStore();
   const [tempNickname, setTempNickname] = useState("");
+  const [tempAvatar, setTempAvatar] = useState<string>(() => {
+    const random = ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
+    return random?.id ?? "";
+  });
+  const [showEditNickname, setShowEditNickname] = useState(false);
+  const [editNicknameInput, setEditNicknameInput] = useState("");
+  const [editAvatar, setEditAvatar] = useState<string>("");
   const containerRef = useRef<HTMLDivElement>(null);
   const menuListRef = useRef<HTMLDivElement>(null);
   const nicknameModalRef = useRef<HTMLDivElement>(null);
@@ -27,20 +42,20 @@ export default function Room() {
   const deviceId = getLocalDeviceId();
 
   const menuVotesMap = useMemo(() => {
-    const map: Record<string, { count: number; voters: string[] }> = {};
-    if (room?.menus) {
-      room.menus.forEach((m) => {
+    const map: Record<string, { count: number; voters: { nickname: string; avatar?: string }[] }> = {};
+    if (menus.length > 0) {
+      menus.forEach((m) => {
         map[m.id] = { count: 0, voters: [] };
       });
     }
     votes.forEach((vote) => {
       if (map[vote.menuId]) {
         map[vote.menuId].count += 1;
-        map[vote.menuId].voters.push(vote.nickname);
+        map[vote.menuId].voters.push({ nickname: vote.nickname, avatar: vote.avatar });
       }
     });
     return map;
-  }, [room, votes]);
+  }, [menus, votes]);
 
   const participantCount = useMemo(
     () => new Set(votes.map((v) => v.userId)).size,
@@ -163,6 +178,12 @@ export default function Room() {
     );
   }
 
+  const handleEnterRoom = () => {
+    if (!tempNickname.trim()) return;
+    setNickname(tempNickname.trim());
+    setAvatar(tempAvatar);
+  };
+
   // 닉네임 입력 모달
   if (!nickname) {
     return (
@@ -172,35 +193,71 @@ export default function Room() {
           className="bg-white p-8 rounded-3xl border border-[#e5e1d8] w-full max-w-sm opacity-0"
           style={{ boxShadow: "0 8px 40px rgba(0,0,0,0.06)" }}
         >
-          <div className="text-center mb-8">
+          <div className="text-center mb-6">
             <p className="text-[9px] font-black text-orange-500 uppercase tracking-[0.35em] mb-3">
               투표 참여
             </p>
             <h2 className="hd text-3xl text-black mb-2 leading-tight">
               {room.title}
             </h2>
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.25em]">
-              닉네임을 설정해주세요
-            </p>
           </div>
+
+          {/* 선택된 아바타 미리보기 */}
+          <div className="flex justify-center mb-4">
+            <div className="w-16 h-16 rounded-2xl bg-orange-50 border-2 border-orange-200 flex items-center justify-center">
+              {tempAvatar && ANIMAL_URL_MAP[tempAvatar] && (
+                <img
+                  src={ANIMAL_URL_MAP[tempAvatar]}
+                  alt={tempAvatar}
+                  className="w-10 h-10 object-contain"
+                />
+              )}
+            </div>
+          </div>
+
+          {/* 동물 아이콘 선택 그리드 */}
+          <div className="mb-5">
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-[0.25em] mb-2 text-center">
+              프로필 아이콘 선택
+            </p>
+            <div className="h-40 overflow-y-auto rounded-xl bg-[#faf9f5] border border-[#e5e1d8] p-2">
+              <div className="grid grid-cols-7 gap-1">
+                {ANIMALS.map((animal) => (
+                  <button
+                    key={animal.id}
+                    type="button"
+                    onClick={() => setTempAvatar(animal.id)}
+                    className={`w-full aspect-square rounded-lg flex items-center justify-center transition-all ${
+                      tempAvatar === animal.id
+                        ? "bg-orange-100 ring-2 ring-orange-400 scale-110"
+                        : "hover:bg-gray-100"
+                    }`}
+                  >
+                    <img
+                      src={animal.url}
+                      alt={animal.id}
+                      className="w-6 h-6 object-contain"
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           <input
             type="text"
             placeholder="사용할 닉네임"
             value={tempNickname}
             onChange={(e) => setTempNickname(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && tempNickname.trim()) {
-                setNickname(tempNickname.trim());
-              }
+              if (e.key === "Enter") handleEnterRoom();
             }}
             maxLength={10}
             autoFocus
             className="w-full bg-[#faf9f5] border border-[#e5e1d8] rounded-xl px-4 py-3.5 mb-3 focus-brand placeholder:text-gray-300 placeholder:font-normal font-medium text-black outline-none transition-all text-sm"
           />
           <button
-            onClick={() =>
-              tempNickname.trim() && setNickname(tempNickname.trim())
-            }
+            onClick={handleEnterRoom}
             disabled={!tempNickname.trim()}
             className="w-full bg-orange-600 disabled:bg-gray-100 disabled:text-gray-400 text-white font-black py-[15px] rounded-xl shadow-[0_4px_20px_rgba(234,88,12,0.2)] transition-all active:scale-[0.98] uppercase text-xs tracking-widest"
           >
@@ -222,7 +279,7 @@ export default function Room() {
 
   const handleVote = async (menuId: string) => {
     if (isClosed) return;
-    await castVote(deviceId, nickname, menuId);
+    await castVote(deviceId, nickname, avatar, menuId);
   };
 
   const handleCopyLink = () => {
@@ -240,6 +297,26 @@ export default function Room() {
         alert("투표 종료에 실패했습니다.");
       }
     }
+  };
+
+  const handleOpenEditNickname = () => {
+    setEditNicknameInput(nickname ?? "");
+    setEditAvatar(avatar ?? tempAvatar);
+    setShowEditNickname(true);
+  };
+
+  const handleSaveNickname = async () => {
+    const trimmed = editNicknameInput.trim();
+    if (!trimmed) {
+      setShowEditNickname(false);
+      return;
+    }
+    if (trimmed !== nickname || editAvatar !== avatar) {
+      await updateNickname(deviceId, trimmed, editAvatar);
+      setNickname(trimmed);
+      if (editAvatar) setAvatar(editAvatar);
+    }
+    setShowEditNickname(false);
   };
 
   return (
@@ -312,7 +389,7 @@ export default function Room() {
         )}
 
         <div ref={menuListRef} className="space-y-3">
-          {room.menus?.map((menu) => {
+          {menus.map((menu) => {
             const voteData = menuVotesMap[menu.id] || {
               count: 0,
               voters: [],
@@ -393,16 +470,23 @@ export default function Room() {
 
                 {/* 투표자 목록 */}
                 <div className="flex flex-wrap gap-1.5 min-h-[20px]">
-                  {voteData.voters.map((voterName, idx) => (
+                  {voteData.voters.map((voter, idx) => (
                     <span
                       key={idx}
-                      className={`text-[10px] font-bold tracking-tight px-2 py-0.5 rounded border ${
-                        voterName === nickname
+                      className={`flex items-center gap-1 text-[10px] font-bold tracking-tight px-2 py-0.5 rounded border ${
+                        voter.nickname === nickname
                           ? "bg-orange-600 border-orange-600 text-white"
                           : "bg-white border-[#e5e1d8] text-gray-500"
                       }`}
                     >
-                      {voterName}
+                      {voter.avatar && ANIMAL_URL_MAP[voter.avatar] && (
+                        <img
+                          src={ANIMAL_URL_MAP[voter.avatar]}
+                          alt={voter.avatar}
+                          className="w-3.5 h-3.5 object-contain"
+                        />
+                      )}
+                      {voter.nickname}
                     </span>
                   ))}
                   {voteData.count === 0 && !isClosed && (
@@ -421,12 +505,93 @@ export default function Room() {
         </div>
       </main>
 
+      {/* 닉네임 수정 모달 */}
+      {showEditNickname && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/30 backdrop-blur-sm">
+          <div className="bg-white p-8 rounded-3xl border border-[#e5e1d8] w-full max-w-sm"
+            style={{ boxShadow: "0 8px 40px rgba(0,0,0,0.12)" }}>
+            <div className="text-center mb-5">
+              <p className="text-[9px] font-black text-orange-500 uppercase tracking-[0.35em] mb-2">
+                프로필 수정
+              </p>
+            </div>
+
+            {/* 선택된 아바타 미리보기 */}
+            <div className="flex justify-center mb-4">
+              <div className="w-14 h-14 rounded-2xl bg-orange-50 border-2 border-orange-200 flex items-center justify-center">
+                {editAvatar && ANIMAL_URL_MAP[editAvatar] && (
+                  <img
+                    src={ANIMAL_URL_MAP[editAvatar]}
+                    alt={editAvatar}
+                    className="w-9 h-9 object-contain"
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* 동물 아이콘 선택 그리드 */}
+            <div className="mb-4">
+              <div className="h-36 overflow-y-auto rounded-xl bg-[#faf9f5] border border-[#e5e1d8] p-2">
+                <div className="grid grid-cols-7 gap-1">
+                  {ANIMALS.map((animal) => (
+                    <button
+                      key={animal.id}
+                      type="button"
+                      onClick={() => setEditAvatar(animal.id)}
+                      className={`w-full aspect-square rounded-lg flex items-center justify-center transition-all ${
+                        editAvatar === animal.id
+                          ? "bg-orange-100 ring-2 ring-orange-400 scale-110"
+                          : "hover:bg-gray-100"
+                      }`}
+                    >
+                      <img
+                        src={animal.url}
+                        alt={animal.id}
+                        className="w-6 h-6 object-contain"
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <input
+              type="text"
+              value={editNicknameInput}
+              onChange={(e) => setEditNicknameInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSaveNickname();
+                if (e.key === "Escape") setShowEditNickname(false);
+              }}
+              maxLength={10}
+              autoFocus
+              className="w-full bg-[#faf9f5] border border-[#e5e1d8] rounded-xl px-4 py-3.5 mb-3 focus-brand placeholder:text-gray-300 font-medium text-black outline-none transition-all text-sm"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowEditNickname(false)}
+                className="flex-1 bg-gray-100 text-gray-600 font-black py-3.5 rounded-xl text-xs uppercase tracking-widest transition-all active:scale-[0.98]"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleSaveNickname}
+                disabled={!editNicknameInput.trim()}
+                className="flex-1 bg-orange-600 disabled:bg-gray-100 disabled:text-gray-400 text-white font-black py-3.5 rounded-xl text-xs uppercase tracking-widest transition-all active:scale-[0.98]"
+              >
+                저장
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 하단 컨트롤 바 */}
       <div className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-[#e5e1d8] p-4">
         <div className="max-w-md mx-auto flex gap-2.5">
           <button
             onClick={handleCopyLink}
-            className="flex-1 flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-black py-3 px-4 rounded-xl transition-all text-[10px] uppercase tracking-widest active:scale-[0.98]"
+            className="flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-black py-3 px-4 rounded-xl transition-all text-[10px] uppercase tracking-widest active:scale-[0.98]"
           >
             <svg
               className="w-3.5 h-3.5"
@@ -442,6 +607,25 @@ export default function Room() {
               />
             </svg>
             링크 복사
+          </button>
+
+          <button
+            onClick={handleOpenEditNickname}
+            className="flex items-center justify-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-black py-3 px-4 rounded-xl transition-all text-[10px] uppercase tracking-widest active:scale-[0.98]"
+          >
+            {avatar && ANIMAL_URL_MAP[avatar] ? (
+              <img
+                src={ANIMAL_URL_MAP[avatar]}
+                alt={avatar}
+                className="w-4 h-4 object-contain"
+              />
+            ) : (
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5"
+                  d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3V17.5L16.732 3.732z" />
+              </svg>
+            )}
+            {nickname}
           </button>
 
           {isHost && !isClosed && (
