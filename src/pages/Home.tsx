@@ -130,7 +130,14 @@ export default function Home() {
             {roomsLoading ? (
               <div className="h-[62px] bg-white border border-[#f0ede6] rounded-2xl animate-pulse" />
             ) : rooms.length > 0 ? (
-              rooms.map((room) => (
+              rooms.map((room) => {
+                const linkedTemplate = room.templateId
+                  ? templates.find((t) => t.id === room.templateId)
+                  : null;
+                const menuCount = linkedTemplate
+                  ? linkedTemplate.menus.length
+                  : room.menus.length;
+                return (
                 <button
                   key={room.id}
                   onClick={() => navigate(`/room/${room.id}`)}
@@ -145,7 +152,7 @@ export default function Home() {
                         {room.title}
                       </span>
                       <span className="text-[9px] font-black text-gray-400 uppercase tracking-[0.25em] mt-0.5 block">
-                        {room.isClosed ? "투표 종료" : "투표 진행 중"} · 메뉴 {room.menus.length}개
+                        {room.isClosed ? "투표 종료" : "투표 진행 중"} · 메뉴 {menuCount}개
                       </span>
                     </div>
                   </div>
@@ -158,7 +165,8 @@ export default function Home() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
                   </svg>
                 </button>
-              ))
+                );
+              })
             ) : (
               <div className="flex flex-col items-center justify-center py-8 px-6 border border-dashed border-[#e5e1d8] rounded-2xl bg-white/50">
                 <p className="hd text-xl text-gray-300 mb-1">아직 만든 투표방이 없습니다</p>

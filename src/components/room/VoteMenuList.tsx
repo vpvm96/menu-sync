@@ -52,11 +52,30 @@ export default function VoteMenuList({
     0,
   );
 
-  const winnerMenuId = isClosed
-    ? Object.entries(menuVotesMap)
-        .filter(([, v]) => v.count > 0)
-        .sort((a, b) => b[1].count - a[1].count)[0]?.[0]
-    : null;
+  // 투표 종료 시 순위 계산
+  const rankMap: Record<string, number> = {};
+  if (isClosed) {
+    const sorted = Object.entries(menuVotesMap)
+      .filter(([, v]) => v.count > 0)
+      .sort((a, b) => b[1].count - a[1].count);
+    let currentRank = 1;
+    sorted.forEach((entry, idx) => {
+      if (idx > 0 && entry[1].count < sorted[idx - 1][1].count) {
+        currentRank = idx + 1;
+      }
+      if (currentRank <= 3) {
+        rankMap[entry[0]] = currentRank;
+      }
+    });
+  }
+
+  // 투표 종료 시 득표순 정렬
+  const displayMenus = isClosed
+    ? [...menus].sort(
+        (a, b) =>
+          (menuVotesMap[b.id]?.count ?? 0) - (menuVotesMap[a.id]?.count ?? 0),
+      )
+    : menus;
 
   // 진입 애니메이션
   useGSAP(
@@ -130,17 +149,29 @@ export default function VoteMenuList({
       </div>
 
       <div className="space-y-3">
-        {menus.map((menu) => {
+        {displayMenus.map((menu) => {
           const voteData = menuVotesMap[menu.id];
           const isMyVote =
             votes.find((v) => v.userId === deviceId)?.menuId === menu.id;
           const isLeading =
             voteData.count > 0 && voteData.count === maxVoteCount;
-          const isWinner = winnerMenuId === menu.id;
+          const rank = rankMap[menu.id] ?? null;
+          const isWinner = rank === 1;
           const percentage =
             totalVotes > 0
               ? Math.round((voteData.count / totalVotes) * 100)
               : 0;
+
+          const rankBadgeStyle: Record<number, string> = {
+            1: "bg-orange-600 text-white",
+            2: "bg-gray-400 text-white",
+            3: "bg-amber-600 text-white",
+          };
+          const rankLabel: Record<number, string> = {
+            1: "1위",
+            2: "2위",
+            3: "3위",
+          };
 
           return (
             <button
@@ -152,26 +183,32 @@ export default function VoteMenuList({
                 "menu-vote-item group relative w-full text-left p-5 rounded-2xl border-2 transition-all duration-200",
                 isWinner
                   ? "border-orange-400 bg-linear-to-br from-orange-50 to-amber-50/40"
-                  : isMyVote
-                    ? "border-orange-200 bg-orange-50/30"
-                    : "border-[#e9e5dd] bg-white hover:border-orange-200 hover:shadow-sm",
-                isClosed && !isWinner ? "opacity-45" : "",
+                  : rank === 2
+                    ? "border-gray-300 bg-gray-50/30"
+                    : rank === 3
+                      ? "border-amber-200 bg-amber-50/20"
+                      : isMyVote
+                        ? "border-orange-200 bg-orange-50/30"
+                        : "border-[#e9e5dd] bg-white hover:border-orange-200 hover:shadow-sm",
+                isClosed && rank === null ? "opacity-45" : "",
                 isClosed ? "cursor-default" : "active:scale-[0.99]",
               ]
                 .filter(Boolean)
                 .join(" ")}
             >
-              {isWinner && (
+              {rank !== null && (
                 <div className="absolute -top-2.5 left-5">
-                  <span className="bg-orange-600 text-white text-[9px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-widest shadow-sm">
-                    1위
+                  <span
+                    className={`text-[9px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-widest shadow-sm ${rankBadgeStyle[rank]}`}
+                  >
+                    {rankLabel[rank]}
                   </span>
                 </div>
               )}
 
               <div className="flex justify-between items-start mb-3">
                 <h3
-                  className={`hd text-[26px] leading-tight transition-colors flex-1 ${isWinner ? "text-orange-950" : "text-black"} ${!isClosed ? "group-hover:text-orange-900" : ""}`}
+                  className={`hd text-[26px] leading-tight transition-colors flex-1 ${isWinner ? "text-orange-950" : rank === 2 ? "text-gray-700" : rank === 3 ? "text-amber-900" : "text-black"} ${!isClosed ? "group-hover:text-orange-900" : ""}`}
                 >
                   {menu.name}
                 </h3>
